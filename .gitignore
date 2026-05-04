@@ -1,0 +1,21 @@
+# Foundry
+cache/
+out/
+broadcast/
+
+# Foundry deps — managed by `forge install`. Re-create with the
+# install commands listed in README's Quick Start.
+lib/
+
+# Coverage artifacts
+lcov.info
+coverage/
+
+# Local env / editor / OS
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Claude Code local settings (user-specific permissions / preferences)
+.claude/
