@@ -19,3 +19,9 @@ coverage/
 
 # Claude Code local settings (user-specific permissions / preferences)
 .claude/
+
+# Python sim
+simulation/.cache/
+simulation/**/__pycache__/
+simulation/**/*.egg-info/
+simulation/.venv/
