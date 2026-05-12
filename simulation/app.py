@@ -11,8 +11,19 @@ falls back to a synthetic GBM dataset (clearly labeled).
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pandas as pd
+
+# Load simulation/.env if present (no python-dotenv dependency).
+_envfile = Path(__file__).with_name(".env")
+if _envfile.exists():
+    for line in _envfile.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
