@@ -19,7 +19,7 @@ class SwapEvent:
     sqrt_p: float
     fee_usd: float        # total fee revenue this swap, in USD
     pool_liquidity: float # in-range liquidity at this swap
-    price: float          # USD per ETH (token1 per token0, human units)
+    eth_price_usd: float  # USD per ETH at this tick — used for gas conversion
 
 
 @dataclass
@@ -44,7 +44,7 @@ class LP:
     def maybe_rebalance(self, ev: SwapEvent) -> None:
         pass
 
-    def value_usd(self, sqrt_p: float, price: float) -> float:
+    def value_usd(self, sqrt_p: float, tick: int) -> float:
         if self.position is None:
             return 0.0
-        return self.position.value_usd(sqrt_p, price, self.pool) + self.position.fee_usd
+        return self.position.value_usd(sqrt_p, tick, self.pool) + self.position.fee_usd

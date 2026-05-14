@@ -47,12 +47,12 @@ class ModeLP(LP):
     def bin_size_ticks(self) -> int:
         return self.bin_width * self.pool.tick_spacing
 
-    def initialize(self, start_tick: int, start_sqrt_p: float, start_price: float) -> None:
+    def initialize(self, start_tick: int, start_sqrt_p: float) -> None:
         lower, upper = initial_range(self.mode, start_tick, self.bin_size_ticks, self.dir_)
         sqrt_pa = sqrt_p_at_tick(lower)
         sqrt_pb = sqrt_p_at_tick(upper)
         liq = usd_to_liquidity(
-            self.deposit_usd, start_sqrt_p, sqrt_pa, sqrt_pb, self.pool, start_price
+            self.deposit_usd, start_sqrt_p, sqrt_pa, sqrt_pb, self.pool, start_tick
         )
         self.position = Position(tick_lower=lower, tick_upper=upper, liquidity=liq)
         self.initial_value_usd = self.deposit_usd
@@ -94,12 +94,12 @@ class ModeLP(LP):
             return  # same-bin no-op (spec §5.5)
         # Keeper profitability gate: keeper only calls if reward > gas.
         keeper_reward = self.fees_since_last_rebalance * (self.keeper_reward_bps / 10_000.0)
-        gas_cost = self.gas_per_rebalance_usd(ev.price)
+        gas_cost = self.gas_per_rebalance_usd(ev.eth_price_usd)
         if keeper_reward < gas_cost:
             return  # opportunity skipped — position stays misaligned
         # Burn old position: get token composition at current price
         a0, a1 = self.position.composition(ev.sqrt_p)
-        post_burn_value = position_value_usd(a0, a1, ev.price, self.pool)
+        post_burn_value = position_value_usd(a0, a1, ev.tick, self.pool)
         # Pay keeper from accrued fees (NOT from principal)
         self.position.fee_usd -= keeper_reward
         self.keeper_paid_usd += keeper_reward
@@ -108,7 +108,7 @@ class ModeLP(LP):
         sqrt_pa = sqrt_p_at_tick(new_lower)
         sqrt_pb = sqrt_p_at_tick(new_upper)
         new_liq = usd_to_liquidity(
-            post_burn_value, ev.sqrt_p, sqrt_pa, sqrt_pb, self.pool, ev.price
+            post_burn_value, ev.sqrt_p, sqrt_pa, sqrt_pb, self.pool, ev.tick
         )
         self.position = Position(
             tick_lower=new_lower,

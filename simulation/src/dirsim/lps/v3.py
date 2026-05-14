@@ -17,7 +17,7 @@ class V3StaticLP(LP):
     full_range: bool = False
     price_taker: bool = True
 
-    def initialize(self, start_tick: int, start_sqrt_p: float, start_price: float) -> None:
+    def initialize(self, start_tick: int, start_sqrt_p: float) -> None:
         if self.full_range:
             tick_l = -887_220  # close to TickMath MIN/MAX, snapped to multiple of 60
             tick_u = 887_220
@@ -30,7 +30,7 @@ class V3StaticLP(LP):
             tick_u = ((start_tick + tick_offset) + ts - 1) // ts * ts
         sqrt_pa = sqrt_p_at_tick(tick_l)
         sqrt_pb = sqrt_p_at_tick(tick_u)
-        liq = usd_to_liquidity(self.deposit_usd, start_sqrt_p, sqrt_pa, sqrt_pb, self.pool, start_price)
+        liq = usd_to_liquidity(self.deposit_usd, start_sqrt_p, sqrt_pa, sqrt_pb, self.pool, start_tick)
         self.position = Position(tick_lower=tick_l, tick_upper=tick_u, liquidity=liq)
         self.initial_value_usd = self.deposit_usd
 

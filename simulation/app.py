@@ -36,9 +36,18 @@ from dirsim.sim import SimConfig, run_sim
 
 st.set_page_config(page_title="Directional Liquidity Hook — Backtest", layout="wide")
 st.title("Directional Liquidity Hook — April 2025 backtest")
-st.caption("USDC/ETH 0.05% pool on Base. 4 LPs each deposit $100k at t=0.")
+st.caption(
+    "Trade data from USDC/WETH 0.05% on Ethereum Mainnet (deepest pool). "
+    "Gas costs configurable per network — try Base/Optimism vs Mainnet to "
+    "see how the hook's economics change. 4 LPs each deposit $100k at t=0."
+)
 
-source_label = "Real subgraph data" if os.environ.get("SUBGRAPH_URL") else "⚠ Synthetic data (set SUBGRAPH_URL for real)"
+_has_subgraph = bool(os.environ.get("SUBGRAPH_URL") or os.environ.get("GRAPH_API_KEY"))
+source_label = (
+    "Real subgraph data"
+    if _has_subgraph
+    else "⚠ Synthetic data — set GRAPH_API_KEY in simulation/.env for real Mainnet data"
+)
 st.markdown(f"**Data source:** {source_label}")
 
 with st.sidebar:

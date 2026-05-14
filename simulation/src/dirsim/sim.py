@@ -19,7 +19,7 @@ from .liquidity import sqrt_p_at_tick
 from .lps.base import LP, SwapEvent
 from .lps.mode import ModeLP
 from .lps.v3 import V3StaticLP
-from .pool import PoolInfo, BASE_USDC_ETH_005, tick_to_price_token1_per_token0
+from .pool import PoolInfo, MAINNET_USDC_ETH_005, eth_price_usd
 from .presets import gas_fn_for_network
 
 
@@ -72,7 +72,7 @@ class SimResult:
 
 def run_sim(
     cfg: SimConfig,
-    pool: PoolInfo = BASE_USDC_ETH_005,
+    pool: PoolInfo = MAINNET_USDC_ETH_005,
     start: str = "2025-04-01",
     end: str = "2025-05-01",
     swaps: pd.DataFrame | None = None,
@@ -87,7 +87,6 @@ def run_sim(
     first = swaps.iloc[0]
     start_tick = int(first["tick"])
     start_sqrt_p = sqrt_p_at_tick(start_tick)
-    start_price = tick_to_price_token1_per_token0(start_tick, pool)
 
     range_pct, full_range = cfg.v3_range_pct()
     gas_fn = gas_fn_for_network(cfg.network)
@@ -136,7 +135,7 @@ def run_sim(
         ),
     ]
     for lp in lps:
-        lp.initialize(start_tick, start_sqrt_p, start_price)  # type: ignore[attr-defined]
+        lp.initialize(start_tick, start_sqrt_p)  # type: ignore[attr-defined]
 
     snapshot_rows: list[dict] = []
     last_snapshot = 0
@@ -149,14 +148,14 @@ def run_sim(
         tick = int(ticks[i])
         ts = int(tss[i])
         sqrt_p = sqrt_p_at_tick(tick)
-        price = tick_to_price_token1_per_token0(tick, pool)
+        eth_usd = eth_price_usd(tick, pool)
         ev = SwapEvent(
             ts=ts,
             tick=tick,
             sqrt_p=sqrt_p,
             fee_usd=float(fees[i]),
             pool_liquidity=float(pool_liqs[i]),
-            price=price,
+            eth_price_usd=eth_usd,
         )
         for lp in lps:
             lp.on_swap(ev)
@@ -164,7 +163,7 @@ def run_sim(
         if ts - last_snapshot >= cfg.snapshot_every_seconds:
             for lp in lps:
                 snapshot_rows.append(
-                    dict(ts=ts, lp_name=lp.name, value_usd=lp.value_usd(sqrt_p, price), price=price)
+                    dict(ts=ts, lp_name=lp.name, value_usd=lp.value_usd(sqrt_p, tick), price=eth_usd)
                 )
             last_snapshot = ts
 
@@ -172,11 +171,10 @@ def run_sim(
     last = swaps.iloc[-1]
     final_tick = int(last["tick"])
     final_sqrt_p = sqrt_p_at_tick(final_tick)
-    final_price = tick_to_price_token1_per_token0(final_tick, pool)
 
     summary = []
     for lp in lps:
-        final_val = lp.value_usd(final_sqrt_p, final_price)
+        final_val = lp.value_usd(final_sqrt_p, final_tick)
         fees_usd = lp.position.fee_usd if lp.position else 0.0
         summary.append(
             LPRow(

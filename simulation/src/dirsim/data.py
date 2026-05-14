@@ -1,14 +1,18 @@
 """Subgraph fetch + parquet cache for Uniswap v3 swaps.
 
 Real data path: query a Uniswap v3 subgraph for Swap entities in a time
-window and persist to parquet. Configure with env var SUBGRAPH_URL — for
-The Graph Network this looks like
-  https://gateway.thegraph.com/api/<API_KEY>/subgraphs/id/<DEPLOYMENT_ID>
+window and persist to parquet.
 
-Fallback: if SUBGRAPH_URL is unset we synthesize a deterministic walk
-over the requested window so the rest of the pipeline can be tested
-without an API key. The synthetic path is clearly marked so it can never
-be confused with real data downstream.
+We support two ways to point at the right subgraph:
+
+  - `SUBGRAPH_URL` env var — full gateway URL, takes precedence.
+  - `GRAPH_API_KEY` env var — combined with the pool's
+    `subgraph_deployment_id` to build the gateway URL.
+
+Fallback: if neither is set we synthesize a deterministic walk over the
+requested window so the rest of the pipeline can be tested without an
+API key. The synthetic path is clearly marked so it can never be
+confused with real data downstream.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from .pool import PoolInfo, BASE_USDC_ETH_005, price_to_tick
+from .pool import PoolInfo, MAINNET_USDC_ETH_005, price_to_tick
 
 
 CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache"
@@ -83,13 +87,26 @@ query PoolHours($pool: String!, $first: Int!, $lastTs: Int!, $endTs: Int!) {
 """
 
 
+def _resolve_subgraph_url(p: PoolInfo) -> str | None:
+    """Pick the subgraph URL for this pool. Explicit SUBGRAPH_URL wins;
+    otherwise build one from GRAPH_API_KEY + the pool's deployment ID.
+    """
+    explicit = os.environ.get("SUBGRAPH_URL")
+    if explicit:
+        return explicit
+    api_key = os.environ.get("GRAPH_API_KEY")
+    if api_key and p.subgraph_deployment_id:
+        return f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{p.subgraph_deployment_id}"
+    return None
+
+
 def _fetch_subgraph(spec: FetchSpec, page_size: int = 1000) -> pd.DataFrame:
-    url = os.environ.get("SUBGRAPH_URL")
+    url = _resolve_subgraph_url(spec.pool)
     if not url:
         raise RuntimeError(
-            "SUBGRAPH_URL not set. Either export it (e.g. a Graph Network "
-            "gateway URL with API key) or pass source='synthetic' to "
-            "generate a fallback dataset for pipeline testing."
+            "No subgraph URL available. Either set SUBGRAPH_URL directly, "
+            "or set GRAPH_API_KEY and let the pool's deployment ID supply "
+            "the rest. Or pass source='synthetic' for a fallback dataset."
         )
     rows: list[dict] = []
     cursor_ts = spec.start_ts
@@ -129,9 +146,9 @@ def _fetch_subgraph(spec: FetchSpec, page_size: int = 1000) -> pd.DataFrame:
 
 
 def _fetch_pool_hours(spec: FetchSpec, page_size: int = 1000) -> pd.DataFrame:
-    url = os.environ.get("SUBGRAPH_URL")
+    url = _resolve_subgraph_url(spec.pool)
     if not url:
-        raise RuntimeError("SUBGRAPH_URL not set")
+        raise RuntimeError("No subgraph URL available (set SUBGRAPH_URL or GRAPH_API_KEY)")
     rows: list[dict] = []
     cursor_ts = spec.start_ts
     while True:
@@ -222,7 +239,11 @@ def _synthesize(spec: FetchSpec, swaps_per_hour: int = 600, seed: int = 42) -> p
     n = max(1, (duration // 3600) * swaps_per_hour)
     dt = duration / n
     sigma = 0.6 / math.sqrt(365 * 24 * 3600)  # ~60% annualized vol
-    log_price = math.log(2000.0)  # USDC per WETH starting near $2k
+    eth_price_in_usd = 2000.0
+    # human_price_t1_per_t0: on token1=USDC pools this IS the ETH price;
+    # on token0=USDC pools (Mainnet) it's the reciprocal.
+    starting_hp = eth_price_in_usd if spec.pool.usd_token_index == 1 else 1.0 / eth_price_in_usd
+    log_price = math.log(starting_hp)
     rows = []
     block = 20_000_000
     for i in range(n):
@@ -245,13 +266,16 @@ def _synthesize(spec: FetchSpec, swaps_per_hour: int = 600, seed: int = 42) -> p
             )
         )
     df = pd.DataFrame(rows)
+    # Column name kept for back-compat; value is always USD fees per swap.
     df["fee_token1_usd"] = df["amountUSD"].abs() * (spec.pool.fee_pips / 1_000_000.0)
-    df["pool_liquidity"] = 5e16
+    # Synthetic in-range pool L. Mainnet pools are an order of magnitude
+    # deeper than Base; we approximate both with a single fudge factor.
+    df["pool_liquidity"] = 5e17 if spec.pool.chain == "mainnet" else 5e16
     return df
 
 
 def load_swaps(
-    pool: PoolInfo = BASE_USDC_ETH_005,
+    pool: PoolInfo = MAINNET_USDC_ETH_005,
     start: str = "2025-04-01",
     end: str = "2025-05-01",
     source: str | None = None,
@@ -259,13 +283,13 @@ def load_swaps(
 ) -> pd.DataFrame:
     """Return swap events for the window, hitting cache when available.
 
-    `source` is auto-resolved: 'subgraph' if SUBGRAPH_URL is set, else
+    `source` is auto-resolved: 'subgraph' if a key/URL is available, else
     'synthetic'. Pass explicitly to override.
     """
     start_ts = int(datetime.fromisoformat(start).replace(tzinfo=timezone.utc).timestamp())
     end_ts = int(datetime.fromisoformat(end).replace(tzinfo=timezone.utc).timestamp())
     if source is None:
-        source = "subgraph" if os.environ.get("SUBGRAPH_URL") else "synthetic"
+        source = "subgraph" if _resolve_subgraph_url(pool) else "synthetic"
     spec = FetchSpec(pool=pool, start_ts=start_ts, end_ts=end_ts, source=source)
     cache = spec.cache_path()
     if cache.exists() and not refresh:
