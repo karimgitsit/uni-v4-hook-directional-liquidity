@@ -25,3 +25,6 @@ simulation/.cache/
 simulation/**/__pycache__/
 simulation/**/*.egg-info/
 simulation/.venv/
+
+# Local patch exports (used when push paths are blocked; apply with `git am`)
+.patches/
