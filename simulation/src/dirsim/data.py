@@ -226,13 +226,15 @@ def _normalize_subgraph_rows(rows: list[dict], p: PoolInfo) -> pd.DataFrame:
     return df
 
 
-def _synthesize(spec: FetchSpec, swaps_per_hour: int = 600, seed: int = 42) -> pd.DataFrame:
+def _synthesize(spec: FetchSpec, swaps_per_hour: int = 250, seed: int = 42) -> pd.DataFrame:
     """Deterministic geometric brownian motion over the window.
 
-    Swaps are spaced uniformly. Tick is derived from a GBM in price space.
-    Fee USD is set so a roughly constant pool TVL would yield realistic
-    daily fee revenue. This is a fallback to exercise the simulator end
-    to end without subgraph access — never use for real return numbers.
+    Calibrated to roughly match Uniswap v3 USDC/WETH 0.05% Mainnet pool:
+    ~$150-200M daily volume, ~5-10k swaps/day, in-range L on the order
+    of 1e19. With the default knobs a $100k v3 ±20% LP earns low single
+    digits %/month, which is roughly the real-pool ballpark for April 2025.
+
+    Still a fallback — never publish real return numbers off this path.
     """
     rng = random.Random(seed)
     duration = spec.end_ts - spec.start_ts
@@ -246,12 +248,15 @@ def _synthesize(spec: FetchSpec, swaps_per_hour: int = 600, seed: int = 42) -> p
     log_price = math.log(starting_hp)
     rows = []
     block = 20_000_000
+    # Per-swap USD sigma. Real swap-size distribution is heavy-tailed; abs-gauss
+    # is a crude model but adequate for a fallback. mean(|N(0,30k)|) ≈ $24k/swap.
+    swap_usd_sigma = 30_000.0
     for i in range(n):
         ts = spec.start_ts + int(i * dt)
         log_price += rng.gauss(0, sigma * math.sqrt(dt))
         price = math.exp(log_price)
         tick = price_to_tick(price, spec.pool)
-        amount_usd = abs(rng.gauss(0, 8000.0))
+        amount_usd = abs(rng.gauss(0, swap_usd_sigma))
         side = rng.choice([-1, 1])
         amount0 = side * (amount_usd / price)
         amount1 = -side * amount_usd
@@ -268,9 +273,11 @@ def _synthesize(spec: FetchSpec, swaps_per_hour: int = 600, seed: int = 42) -> p
     df = pd.DataFrame(rows)
     # Column name kept for back-compat; value is always USD fees per swap.
     df["fee_token1_usd"] = df["amountUSD"].abs() * (spec.pool.fee_pips / 1_000_000.0)
-    # Synthetic in-range pool L. Mainnet pools are an order of magnitude
-    # deeper than Base; we approximate both with a single fudge factor.
-    df["pool_liquidity"] = 5e17 if spec.pool.chain == "mainnet" else 5e16
+    # Synthetic in-range pool L. Calibrated so that a $100k ±20% v3 LP
+    # earns a realistic 1-3%/month from fees alone. Real pool L for USDC/WETH
+    # 0.05% on Mainnet runs ~1e19 due to JIT bots concentrating near spot;
+    # Base is roughly 1/4 of that.
+    df["pool_liquidity"] = 2e19 if spec.pool.chain == "mainnet" else 5e18
     return df
 
 

@@ -92,7 +92,14 @@ class ModeLP(LP):
         )
         if new_lower == self.position.tick_lower and new_upper == self.position.tick_upper:
             return  # same-bin no-op (spec §5.5)
-        # Keeper profitability gate: keeper only calls if reward > gas.
+        # Keeper profitability gate: a rational keeper only submits the tx
+        # if the reward (keeper_reward_bps × fees accrued since last shift)
+        # exceeds their gas cost. When the gate fires, fees keep accumulating
+        # until the next trigger; this is exactly the "let fees accumulate
+        # longer" behavior — no separate cooldown needed.
+        # Real keepers want some margin above breakeven; tune by raising
+        # keeper_reward_bps in the config if the resulting count looks too
+        # high (effectively raises the reward, modeling a more-generous LP).
         keeper_reward = self.fees_since_last_rebalance * (self.keeper_reward_bps / 10_000.0)
         gas_cost = self.gas_per_rebalance_usd(ev.eth_price_usd)
         if keeper_reward < gas_cost:
