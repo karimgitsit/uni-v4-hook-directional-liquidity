@@ -162,8 +162,146 @@ fig2 = px.bar(
 fig2.update_layout(yaxis_title="USD", height=380)
 st.plotly_chart(fig2, width="stretch")
 
+# --- Time series: LP value lines + ETH price + rebalance markers ---------
+
+ts_df = res.timeseries.copy()
+if not ts_df.empty:
+    ts_df["dt"] = pd.to_datetime(ts_df["ts"], unit="s", utc=True)
+    rb_df = res.rebalances.copy()
+    if not rb_df.empty:
+        rb_df["dt"] = pd.to_datetime(rb_df["ts"], unit="s", utc=True)
+
+    lp_colors = {
+        f"v3 baseline ({v3_range})": "#34495e",
+        "Mode Right": "#27ae60",
+        "Mode Left": "#c0392b",
+        "Mode Both": "#8e44ad",
+    }
+
+    st.subheader("LP value over time")
+    st.caption(
+        "Solid lines: each LP's mark-to-market value + accrued fees, sampled hourly. "
+        "Dashed grey: ETH/USD on the right axis. Markers (▼) show rebalance events "
+        "per-mode — clusters near sharp price moves are the gate firing on trend "
+        "exits; isolated single markers are reversal-driven Mode Both shifts."
+    )
+    from plotly.subplots import make_subplots
+
+    fig_ts = make_subplots(specs=[[{"secondary_y": True}]])
+    for lp_name, group in ts_df.groupby("lp_name"):
+        fig_ts.add_trace(
+            go.Scatter(
+                x=group["dt"],
+                y=group["value_usd"],
+                mode="lines",
+                name=lp_name,
+                line=dict(color=lp_colors.get(lp_name, "#7f8c8d"), width=2),
+                hovertemplate=f"{lp_name}<br>%{{x|%b %d %H:%M}}<br>$%{{y:,.0f}}<extra></extra>",
+            ),
+            secondary_y=False,
+        )
+    # ETH price on secondary axis — pull from any single LP's snapshot
+    eth_series = ts_df.groupby("dt")["price"].first().reset_index()
+    fig_ts.add_trace(
+        go.Scatter(
+            x=eth_series["dt"],
+            y=eth_series["price"],
+            mode="lines",
+            name="ETH/USD",
+            line=dict(color="#95a5a6", width=1, dash="dash"),
+            hovertemplate="ETH/USD<br>%{x|%b %d %H:%M}<br>$%{y:,.0f}<extra></extra>",
+        ),
+        secondary_y=True,
+    )
+    # Rebalance markers — per mode, plotted at the LP's own y at that ts
+    if not rb_df.empty:
+        for lp_name, group in rb_df.groupby("lp_name"):
+            joined = group.merge(
+                ts_df[["ts", "lp_name", "value_usd"]],
+                on=["ts", "lp_name"],
+                how="left",
+            )
+            # If a rebalance happened between snapshots, fall back to the
+            # initial deposit value (avoids NaN markers).
+            joined["value_usd"] = joined["value_usd"].fillna(100_000.0)
+            fig_ts.add_trace(
+                go.Scatter(
+                    x=pd.to_datetime(joined["ts"], unit="s", utc=True),
+                    y=joined["value_usd"],
+                    mode="markers",
+                    name=f"{lp_name} rebal",
+                    marker=dict(
+                        symbol="triangle-down",
+                        size=9,
+                        color=lp_colors.get(lp_name, "#7f8c8d"),
+                        line=dict(width=1, color="white"),
+                    ),
+                    hovertemplate=(
+                        f"{lp_name} rebalance<br>%{{x|%b %d %H:%M}}"
+                        "<br>ETH $%{customdata:,.0f}<extra></extra>"
+                    ),
+                    customdata=joined["price"],
+                    showlegend=False,
+                ),
+                secondary_y=False,
+            )
+    fig_ts.update_layout(
+        height=460,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode="x unified",
+    )
+    fig_ts.update_yaxes(title_text="LP value (USD)", secondary_y=False)
+    fig_ts.update_yaxes(title_text="ETH/USD", secondary_y=True, showgrid=False)
+    st.plotly_chart(fig_ts, width="stretch")
+
+    # --- Cumulative fees & principal-drift decomposition over time -------
+
+    st.subheader("Cumulative fees & principal drift over time")
+    st.caption(
+        "Per-LP breakdown of value evolution. Blue: cumulative fees accruing upward. "
+        "Orange: principal value drifting away from initial $100k deposit (negative = "
+        "impermanent loss). Their sum is the full LP value line above."
+    )
+    decomp_cols = st.columns(2)
+    lps_ordered = list(ts_df["lp_name"].unique())
+    for i, lp_name in enumerate(lps_ordered):
+        group = ts_df[ts_df["lp_name"] == lp_name].sort_values("ts")
+        principal_drift = group["principal_usd"] - 100_000.0
+        fig_d = go.Figure()
+        fig_d.add_trace(
+            go.Scatter(
+                x=group["dt"],
+                y=group["fees_usd"],
+                mode="lines",
+                name="fees",
+                line=dict(color="#3498db", width=2),
+                fill="tozeroy",
+                fillcolor="rgba(52,152,219,0.25)",
+            )
+        )
+        fig_d.add_trace(
+            go.Scatter(
+                x=group["dt"],
+                y=principal_drift,
+                mode="lines",
+                name="principal drift",
+                line=dict(color="#e67e22", width=2),
+                fill="tozeroy",
+                fillcolor="rgba(230,126,34,0.25)",
+            )
+        )
+        fig_d.add_hline(y=0, line_color="#bdc3c7", line_width=1)
+        fig_d.update_layout(
+            title=lp_name,
+            yaxis_title="USD vs initial deposit",
+            height=260,
+            margin=dict(l=40, r=20, t=40, b=30),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+        )
+        decomp_cols[i % 2].plotly_chart(fig_d, width="stretch")
+
 st.caption(
     "Spec source: spec/DirectionalLiquidityHook-spec.md. Sim mirrors the hook in Python — "
     "no on-chain calls. Fee attribution: analytical share of in-range pool liquidity. "
-    "Mark-to-market on April 30 + accrued fees, no exit slippage modeled."
+    "Mark-to-market at window end + accrued fees, no exit slippage modeled."
 )

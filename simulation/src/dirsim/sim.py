@@ -67,7 +67,8 @@ class LPRow:
 class SimResult:
     config: SimConfig
     summary: list[LPRow]
-    timeseries: pd.DataFrame   # ts, lp_name, value_usd, price
+    timeseries: pd.DataFrame   # ts, lp_name, value_usd, fees_usd, principal_usd, price
+    rebalances: pd.DataFrame   # ts, lp_name, price (one row per rebalance)
 
 
 def run_sim(
@@ -138,7 +139,12 @@ def run_sim(
         lp.initialize(start_tick, start_sqrt_p)  # type: ignore[attr-defined]
 
     snapshot_rows: list[dict] = []
+    rebal_rows: list[dict] = []
     last_snapshot = 0
+    # Track per-LP rebalance counts seen at previous step so we can detect
+    # new rebalances triggered inside maybe_rebalance() and stamp the event
+    # with the swap's ts/price for the rebalance-marker visualization.
+    prev_rebal_counts = [0] * len(lps)
     ticks = swaps["tick"].to_numpy()
     tss = swaps["ts"].to_numpy()
     fees = swaps["fee_token1_usd"].to_numpy()
@@ -157,13 +163,26 @@ def run_sim(
             pool_liquidity=float(pool_liqs[i]),
             eth_price_usd=eth_usd,
         )
-        for lp in lps:
+        for idx, lp in enumerate(lps):
             lp.on_swap(ev)
             lp.maybe_rebalance(ev)
+            if lp.rebalance_count > prev_rebal_counts[idx]:
+                rebal_rows.append(dict(ts=ts, lp_name=lp.name, price=eth_usd))
+                prev_rebal_counts[idx] = lp.rebalance_count
         if ts - last_snapshot >= cfg.snapshot_every_seconds:
             for lp in lps:
+                fees_usd = lp.position.fee_usd if lp.position else 0.0
+                total_val = lp.value_usd(sqrt_p, tick)
+                principal_val = total_val - fees_usd
                 snapshot_rows.append(
-                    dict(ts=ts, lp_name=lp.name, value_usd=lp.value_usd(sqrt_p, tick), price=eth_usd)
+                    dict(
+                        ts=ts,
+                        lp_name=lp.name,
+                        value_usd=total_val,
+                        fees_usd=fees_usd,
+                        principal_usd=principal_val,
+                        price=eth_usd,
+                    )
                 )
             last_snapshot = ts
 
@@ -188,7 +207,8 @@ def run_sim(
         )
 
     ts_df = pd.DataFrame(snapshot_rows)
-    return SimResult(config=cfg, summary=summary, timeseries=ts_df)
+    rb_df = pd.DataFrame(rebal_rows) if rebal_rows else pd.DataFrame(columns=["ts", "lp_name", "price"])
+    return SimResult(config=cfg, summary=summary, timeseries=ts_df, rebalances=rb_df)
 
 
 if __name__ == "__main__":
