@@ -56,8 +56,20 @@ except (FileNotFoundError, AttributeError):
     pass
 
 from dirsim.data import load_swaps
+from dirsim.pool import MAINNET_USDC_ETH_005
 from dirsim.presets import NETWORK_DEFAULTS
 from dirsim.sim import SimConfig, run_sim
+
+
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
+def cached_load_swaps(start_iso: str, end_iso: str) -> pd.DataFrame:
+    """In-process cache on top of data.py's parquet cache.
+
+    The parquet cache survives across reruns of the same window; this
+    additionally avoids the parquet read on every re-render within a
+    session, and lets us show a clean spinner around the *first* fetch.
+    """
+    return load_swaps(pool=MAINNET_USDC_ETH_005, start=start_iso, end=end_iso)
 
 
 # Available historical window. The subgraph cache holds about a year of
@@ -154,12 +166,26 @@ if run or "result" not in st.session_state:
         v3_range=v3_range,
         price_taker=price_taker,
     )
-    with st.spinner("Running…"):
+    with st.status("Loading swap data…", expanded=False) as status:
+        swaps = cached_load_swaps(start_date.isoformat(), end_date.isoformat())
+        n_swaps = len(swaps)
+        status.update(label=f"Loaded {n_swaps:,} swaps. Running 4 LPs…")
+
+        progress = st.progress(0.0, text="Simulating…")
+
+        def on_progress(done: int, total: int) -> None:
+            # Throttled to ~every 1% by run_sim itself.
+            progress.progress(min(done / max(total, 1), 1.0), text=f"Simulating… {done:,}/{total:,} swaps")
+
         res = run_sim(
             cfg,
             start=start_date.isoformat(),
             end=end_date.isoformat(),
+            swaps=swaps,
+            progress_callback=on_progress,
         )
+        progress.empty()
+        status.update(label=f"Done — {n_swaps:,} swaps simulated.", state="complete")
     st.session_state["result"] = res
 
 res = st.session_state["result"]

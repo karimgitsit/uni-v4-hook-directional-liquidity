@@ -141,7 +141,7 @@ def _fetch_subgraph(spec: FetchSpec, page_size: int = 1000) -> pd.DataFrame:
         cursor_ts = last_ts
         if len(batch) < page_size:
             break
-        time.sleep(0.1)  # be nice to the gateway
+        time.sleep(0.02)  # be nice to the gateway
     return _normalize_subgraph_rows(rows, spec.pool)
 
 
@@ -179,7 +179,7 @@ def _fetch_pool_hours(spec: FetchSpec, page_size: int = 1000) -> pd.DataFrame:
         cursor_ts = last_ts + 1
         if len(batch) < page_size:
             break
-        time.sleep(0.1)
+        time.sleep(0.02)
     if not rows:
         return pd.DataFrame(columns=["ts", "liquidity"])
     return pd.DataFrame(

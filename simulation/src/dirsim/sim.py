@@ -83,6 +83,7 @@ def run_sim(
     start: str = "2025-04-01",
     end: str = "2025-05-01",
     swaps: pd.DataFrame | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> SimResult:
     if swaps is None:
         swaps = load_swaps(pool=pool, start=start, end=end)
@@ -156,7 +157,12 @@ def run_sim(
     fees = swaps["fee_token1_usd"].to_numpy()
     pool_liqs = swaps["pool_liquidity"].to_numpy()
 
-    for i in range(len(swaps)):
+    n_swaps = len(swaps)
+    # ~100 progress ticks total — frequent enough to feel live, sparse
+    # enough that the callback overhead is negligible.
+    progress_step = max(1, n_swaps // 100)
+
+    for i in range(n_swaps):
         tick = int(ticks[i])
         ts = int(tss[i])
         sqrt_p = sqrt_p_at_tick(tick)
@@ -191,6 +197,11 @@ def run_sim(
                     )
                 )
             last_snapshot = ts
+        if progress_callback is not None and (i + 1) % progress_step == 0:
+            progress_callback(i + 1, n_swaps)
+
+    if progress_callback is not None:
+        progress_callback(n_swaps, n_swaps)
 
     # Final snapshot
     last = swaps.iloc[-1]
