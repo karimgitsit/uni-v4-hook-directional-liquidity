@@ -232,7 +232,7 @@ with col2:
         showlegend=False,
         height=380,
     )
-    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
+    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
 st.subheader("Summary stats")
 st.dataframe(
@@ -246,7 +246,7 @@ st.dataframe(
             "return_%": "{:.2f}%",
         }
     ),
-    width="stretch",
+    use_container_width=True,
     hide_index=True,
 )
 
@@ -266,7 +266,7 @@ fig2 = px.bar(
     color_discrete_map={"fees": "#3498db", "principal_drift": "#e67e22"},
 )
 fig2.update_layout(yaxis_title="USD", height=380)
-st.plotly_chart(fig2, width="stretch", config=PLOTLY_CONFIG)
+st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
 
 # --- Time series: LP value lines + ETH price + rebalance markers ---------
 
@@ -358,7 +358,7 @@ if not ts_df.empty:
     )
     fig_ts.update_yaxes(title_text="LP value (USD)", secondary_y=False)
     fig_ts.update_yaxes(title_text="ETH/USD", secondary_y=True, showgrid=False)
-    st.plotly_chart(fig_ts, width="stretch", config=PLOTLY_CONFIG)
+    st.plotly_chart(fig_ts, use_container_width=True, config=PLOTLY_CONFIG)
 
     # --- Cumulative fees & principal-drift decomposition over time -------
 
@@ -404,7 +404,7 @@ if not ts_df.empty:
             margin=dict(l=40, r=20, t=40, b=30),
             legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
         )
-        decomp_cols[i % 2].plotly_chart(fig_d, width="stretch", config=PLOTLY_CONFIG)
+        decomp_cols[i % 2].plotly_chart(fig_d, use_container_width=True, config=PLOTLY_CONFIG)
 
 st.caption(
     "Spec source: spec/DirectionalLiquidityHook-spec.md. Sim mirrors the hook in Python — "
