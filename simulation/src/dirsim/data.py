@@ -24,6 +24,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 import requests
@@ -100,7 +101,11 @@ def _resolve_subgraph_url(p: PoolInfo) -> str | None:
     return None
 
 
-def _fetch_subgraph(spec: FetchSpec, page_size: int = 1000) -> pd.DataFrame:
+def _fetch_subgraph(
+    spec: FetchSpec,
+    page_size: int = 1000,
+    progress_callback: "Callable[[int], None] | None" = None,
+) -> pd.DataFrame:
     url = _resolve_subgraph_url(spec.pool)
     if not url:
         raise RuntimeError(
@@ -132,9 +137,17 @@ def _fetch_subgraph(spec: FetchSpec, page_size: int = 1000) -> pd.DataFrame:
         batch = payload["data"]["swaps"]
         if not batch:
             break
+        prev_row_count = len(rows)
         new = [r for r in batch if r["id"] not in seen_ids]
         rows.extend(new)
         seen_ids.update(r["id"] for r in new)
+        if progress_callback is not None:
+            progress_callback(len(rows))
+        # Safety: high-volume pools can put >page_size swaps at the same
+        # timestamp. If a full page came back but we didn't actually add
+        # any new rows, the cursor is stuck — bail rather than spin.
+        if len(rows) == prev_row_count:
+            break
         last_ts = int(batch[-1]["timestamp"])
         if last_ts == cursor_ts and len(batch) < page_size:
             break
@@ -287,6 +300,7 @@ def load_swaps(
     end: str = "2025-05-01",
     source: str | None = None,
     refresh: bool = False,
+    progress_callback: "Callable[[int], None] | None" = None,
 ) -> pd.DataFrame:
     """Return swap events for the window, hitting cache when available.
 
@@ -302,7 +316,7 @@ def load_swaps(
     if cache.exists() and not refresh:
         return pd.read_parquet(cache)
     if source == "subgraph":
-        df = _fetch_subgraph(spec)
+        df = _fetch_subgraph(spec, progress_callback=progress_callback)
         hours = _fetch_pool_hours(spec)
         df = _attach_pool_liquidity(df, hours)
     elif source == "synthetic":

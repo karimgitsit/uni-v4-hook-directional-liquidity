@@ -62,14 +62,23 @@ from dirsim.sim import SimConfig, run_sim
 
 
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
-def cached_load_swaps(start_iso: str, end_iso: str) -> pd.DataFrame:
+def cached_load_swaps(start_iso: str, end_iso: str, _progress_callback=None) -> pd.DataFrame:
     """In-process cache on top of data.py's parquet cache.
 
     The parquet cache survives across reruns of the same window; this
     additionally avoids the parquet read on every re-render within a
     session, and lets us show a clean spinner around the *first* fetch.
+
+    The `_progress_callback` argument is underscore-prefixed so Streamlit
+    excludes it from the cache key — different callbacks across runs
+    still hit the same cache entry.
     """
-    return load_swaps(pool=MAINNET_USDC_ETH_005, start=start_iso, end=end_iso)
+    return load_swaps(
+        pool=MAINNET_USDC_ETH_005,
+        start=start_iso,
+        end=end_iso,
+        progress_callback=_progress_callback,
+    )
 
 
 # Available historical window. The subgraph cache holds about a year of
@@ -167,7 +176,14 @@ if run or "result" not in st.session_state:
         price_taker=price_taker,
     )
     with st.status("Loading swap data…", expanded=False) as status:
-        swaps = cached_load_swaps(start_date.isoformat(), end_date.isoformat())
+        def on_fetch(n_rows: int) -> None:
+            status.update(label=f"Loading swap data… {n_rows:,} swaps fetched")
+
+        swaps = cached_load_swaps(
+            start_date.isoformat(),
+            end_date.isoformat(),
+            _progress_callback=on_fetch,
+        )
         n_swaps = len(swaps)
         status.update(label=f"Loaded {n_swaps:,} swaps. Running 4 LPs…")
 
