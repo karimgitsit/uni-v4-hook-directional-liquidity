@@ -19,3 +19,8 @@ coverage/
 
 # Claude Code local settings (user-specific permissions / preferences)
 .claude/
+
+# Python (simulation/)
+__pycache__/
+*.py[cod]
+.pytest_cache/
