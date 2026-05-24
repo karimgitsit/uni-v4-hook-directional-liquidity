@@ -33,6 +33,7 @@ class V3StaticLP(LP):
         liq = usd_to_liquidity(self.deposit_usd, start_sqrt_p, sqrt_pa, sqrt_pb, self.pool, start_tick)
         self.position = Position(tick_lower=tick_l, tick_upper=tick_u, liquidity=liq)
         self.initial_value_usd = self.deposit_usd
+        self.initial_amount0_raw, self.initial_amount1_raw = self.position.composition(start_sqrt_p)
 
     def on_swap(self, ev: SwapEvent) -> None:
         if self.position is None:

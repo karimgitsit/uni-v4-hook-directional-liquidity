@@ -215,6 +215,8 @@ summary_df = pd.DataFrame(
             **{"return_%": round(r.return_pct, 2)},
             fees=r.fees_usd,
             principal_drift=r.il_usd,
+            hodl_value=r.hodl_value_usd,
+            **{"vs_hodl_%": round(r.vs_hodl_pct, 2)},
             keeper_paid=r.keeper_paid_usd,
             rebalances=r.rebalance_count,
         )
@@ -258,8 +260,10 @@ st.dataframe(
             "final_value": "${:,.0f}",
             "fees": "${:,.0f}",
             "principal_drift": "${:,.0f}",
+            "hodl_value": "${:,.0f}",
             "keeper_paid": "${:,.0f}",
             "return_%": "{:.2f}%",
+            "vs_hodl_%": "{:.2f}%",
         }
     ),
     use_container_width=True,

@@ -15,7 +15,7 @@ import pandas as pd
 
 from .data import load_swaps
 from .hook import Mode
-from .liquidity import sqrt_p_at_tick
+from .liquidity import position_value_usd, sqrt_p_at_tick
 from .lps.base import LP, SwapEvent
 from .lps.mode import ModeLP
 from .lps.v3 import V3StaticLP
@@ -58,6 +58,9 @@ class LPRow:
     fees_usd: float
     keeper_paid_usd: float
     rebalance_count: int
+    # USD value of the as-deposited token mix marked at the final tick.
+    # Strips out IL/rebalance choices, isolating raw ETH-price exposure.
+    hodl_value_usd: float = 0.0
 
     @property
     def return_pct(self) -> float:
@@ -67,6 +70,12 @@ class LPRow:
     def il_usd(self) -> float:
         # principal value vs original deposit (how much position drift cost us)
         return (self.final_value_usd - self.fees_usd) - self.initial_usd
+
+    @property
+    def vs_hodl_pct(self) -> float:
+        if self.hodl_value_usd <= 0:
+            return 0.0
+        return (self.final_value_usd / self.hodl_value_usd - 1.0) * 100.0
 
 
 @dataclass
@@ -212,6 +221,9 @@ def run_sim(
     for lp in lps:
         final_val = lp.value_usd(final_sqrt_p, final_tick)
         fees_usd = lp.position.fee_usd if lp.position else 0.0
+        hodl_val = position_value_usd(
+            lp.initial_amount0_raw, lp.initial_amount1_raw, final_tick, pool
+        )
         summary.append(
             LPRow(
                 name=lp.name,
@@ -220,6 +232,7 @@ def run_sim(
                 fees_usd=fees_usd,
                 keeper_paid_usd=lp.keeper_paid_usd,
                 rebalance_count=lp.rebalance_count,
+                hodl_value_usd=hodl_val,
             )
         )
 
@@ -253,10 +266,14 @@ if __name__ == "__main__":
     )
     res = run_sim(cfg, start=args.start, end=args.end)
     print(f"\nConfig: {cfg}\n")
-    print(f"{'LP':<28} {'final$':>12} {'return%':>10} {'fees$':>10} {'keeper$':>10} {'#rebal':>8}")
-    print("-" * 84)
+    print(
+        f"{'LP':<28} {'final$':>12} {'return%':>10} {'fees$':>10} "
+        f"{'hodl$':>12} {'vs_hodl%':>10} {'keeper$':>10} {'#rebal':>8}"
+    )
+    print("-" * 116)
     for r in res.summary:
         print(
             f"{r.name:<28} {r.final_value_usd:>12,.0f} {r.return_pct:>10.2f} "
-            f"{r.fees_usd:>10,.0f} {r.keeper_paid_usd:>10,.0f} {r.rebalance_count:>8}"
+            f"{r.fees_usd:>10,.0f} {r.hodl_value_usd:>12,.0f} {r.vs_hodl_pct:>10.2f} "
+            f"{r.keeper_paid_usd:>10,.0f} {r.rebalance_count:>8}"
         )

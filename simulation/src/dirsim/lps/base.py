@@ -31,6 +31,10 @@ class LP:
     rebalance_count: int = 0
     keeper_paid_usd: float = 0.0
     initial_value_usd: float = 0.0
+    # Captured at initialize() — used to compute a HODL benchmark
+    # (value of the as-deposited token mix marked-to-market at any later tick).
+    initial_amount0_raw: float = 0.0
+    initial_amount1_raw: float = 0.0
     history_value_usd: list[tuple[int, float]] = field(default_factory=list)
     history_fees_usd: list[tuple[int, float]] = field(default_factory=list)
 

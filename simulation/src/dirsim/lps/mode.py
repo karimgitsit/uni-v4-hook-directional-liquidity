@@ -56,6 +56,7 @@ class ModeLP(LP):
         )
         self.position = Position(tick_lower=lower, tick_upper=upper, liquidity=liq)
         self.initial_value_usd = self.deposit_usd
+        self.initial_amount0_raw, self.initial_amount1_raw = self.position.composition(start_sqrt_p)
 
     def on_swap(self, ev: SwapEvent) -> None:
         if self.position is not None and self.position.covers(ev.tick):
