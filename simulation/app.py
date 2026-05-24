@@ -11,25 +11,23 @@ falls back to a synthetic GBM dataset (clearly labeled).
 from __future__ import annotations
 
 import os
-import warnings
+import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+# Make `src/` importable so this works under either start mode:
+#   - local:           PYTHONPATH=src streamlit run app.py
+#   - Streamlit Cloud: streamlit run simulation/app.py  (no PYTHONPATH)
+_SRC = Path(__file__).parent / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
 import pandas as pd
 
-# Plotly 6.x emits a DeprecationWarning whenever Streamlit forwards
-# its legacy kwargs ("The keyword arguments have been deprecated …
-# Use `config` instead"). Streamlit surfaces those warnings as a
-# yellow banner above each chart. Silence them here — they are not
-# actionable from app code until Streamlit updates its internals.
-warnings.filterwarnings(
-    "ignore",
-    message=r".*keyword arguments have been deprecated.*",
-)
-warnings.filterwarnings(
-    "ignore",
-    message=r".*Use `config` instead to specify Plotly.*",
-)
+# Streamlit's plotly_chart emits a deprecation banner above every chart
+# when it can't see an explicit `config` argument. Passing config={…}
+# at each call site below opts into the new API and silences it cleanly.
+PLOTLY_CONFIG = {"displaylogo": False}
 
 # Load simulation/.env if present (no python-dotenv dependency).
 _envfile = Path(__file__).with_name(".env")
@@ -44,8 +42,20 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+# On Streamlit Cloud, secrets configured in the dashboard arrive via
+# st.secrets — promote them to env vars so the rest of the app's
+# env-based config (data.py reads SUBGRAPH_URL / GRAPH_API_KEY) still
+# works unchanged.
+try:
+    for _k in ("SUBGRAPH_URL", "GRAPH_API_KEY"):
+        if _k not in os.environ:
+            _v = st.secrets.get(_k) if hasattr(st, "secrets") else None
+            if _v:
+                os.environ[_k] = str(_v)
+except (FileNotFoundError, AttributeError):
+    pass
+
 from dirsim.data import load_swaps
-from dirsim.pool import BASE_USDC_ETH_005
 from dirsim.presets import NETWORK_DEFAULTS
 from dirsim.sim import SimConfig, run_sim
 
@@ -196,7 +206,7 @@ with col2:
         showlegend=False,
         height=380,
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
 st.subheader("Summary stats")
 st.dataframe(
@@ -230,7 +240,7 @@ fig2 = px.bar(
     color_discrete_map={"fees": "#3498db", "principal_drift": "#e67e22"},
 )
 fig2.update_layout(yaxis_title="USD", height=380)
-st.plotly_chart(fig2, width="stretch")
+st.plotly_chart(fig2, width="stretch", config=PLOTLY_CONFIG)
 
 # --- Time series: LP value lines + ETH price + rebalance markers ---------
 
@@ -322,7 +332,7 @@ if not ts_df.empty:
     )
     fig_ts.update_yaxes(title_text="LP value (USD)", secondary_y=False)
     fig_ts.update_yaxes(title_text="ETH/USD", secondary_y=True, showgrid=False)
-    st.plotly_chart(fig_ts, width="stretch")
+    st.plotly_chart(fig_ts, width="stretch", config=PLOTLY_CONFIG)
 
     # --- Cumulative fees & principal-drift decomposition over time -------
 
@@ -368,7 +378,7 @@ if not ts_df.empty:
             margin=dict(l=40, r=20, t=40, b=30),
             legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
         )
-        decomp_cols[i % 2].plotly_chart(fig_d, width="stretch")
+        decomp_cols[i % 2].plotly_chart(fig_d, width="stretch", config=PLOTLY_CONFIG)
 
 st.caption(
     "Spec source: spec/DirectionalLiquidityHook-spec.md. Sim mirrors the hook in Python — "
