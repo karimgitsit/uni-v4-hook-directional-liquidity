@@ -2,7 +2,7 @@
 name = "dirsim"
 version = "0.0.1"
 description = "Backtest simulator for the Directional Liquidity Hook"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "requests>=2.31",
     "pandas>=2.2,<3.0",
